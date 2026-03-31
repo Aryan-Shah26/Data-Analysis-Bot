@@ -1,0 +1,23 @@
+# Core data
+pandas
+numpy
+scipy
+scikit-learn
+
+# Visualization
+plotly
+missingno
+matplotlib
+kaleido
+
+# LLM
+groq
+
+# Environment
+python-dotenv
+
+# Frontend
+streamlit
+
+# Utilities
+tabulate
