@@ -1,6 +1,11 @@
 import pandas as pd
 import numpy as np
-
+from config import (
+    OUTLIER_IQR_MULTIPLIER,
+    OUTLIER_ZSCORE_THRESHOLD,
+    OUTLIER_DROP_MAX_PCT,
+    OUTLIER_DROP_MIN_ROWS,
+)
 
 def detect_outliers_iqr(df: pd.DataFrame, column: str) -> pd.Series:
     """
@@ -9,17 +14,17 @@ def detect_outliers_iqr(df: pd.DataFrame, column: str) -> pd.Series:
     Q1 = df[column].quantile(0.25)
     Q3 = df[column].quantile(0.75)
     IQR = Q3 - Q1
-    lower = Q1 - 1.5 * IQR
-    upper = Q3 + 1.5 * IQR
+    lower = Q1 - OUTLIER_IQR_MULTIPLIER * IQR
+    upper = Q3 + OUTLIER_IQR_MULTIPLIER * IQR
     return (df[column] < lower) | (df[column] > upper)
 
 
-def detect_outliers_zscore(df: pd.DataFrame, column: str, threshold: float = 3.0) -> pd.Series:
+def detect_outliers_zscore(df: pd.DataFrame, column: str) -> pd.Series:
     """
     Returns a boolean mask using Z-score method.
     """
     z_scores = np.abs((df[column] - df[column].mean()) / df[column].std())
-    return z_scores > threshold
+    return z_scores > OUTLIER_ZSCORE_THRESHOLD
 
 
 def cap_outliers_iqr(df: pd.DataFrame, column: str) -> tuple[pd.DataFrame, int]:

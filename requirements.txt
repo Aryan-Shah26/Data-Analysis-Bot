@@ -21,3 +21,10 @@ streamlit
 
 # Utilities
 tabulate
+
+# V2 additions
+langgraph
+langchain-core
+sentence-transformers
+faiss-cpu
+tiktoken

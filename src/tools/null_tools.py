@@ -1,5 +1,5 @@
 import pandas as pd
-
+from config import NULL_DROP_COLUMN_THRESHOLD
 
 def get_null_strategy(col_profile: dict) -> str:
     """
@@ -7,7 +7,7 @@ def get_null_strategy(col_profile: dict) -> str:
     This is the logic that stops the LLM from blindly using mean everywhere.
     """
     # Drop the column if more than 60% is missing
-    if col_profile["null_percent"] > 60:
+    if col_profile["null_percent"] > NULL_DROP_COLUMN_THRESHOLD * 100 :
         return "drop_column"
 
     type_cat = col_profile.get("type_category")

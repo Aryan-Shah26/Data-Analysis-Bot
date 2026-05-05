@@ -7,14 +7,14 @@ matplotlib.use('Agg')  # Non-interactive backend, required for Streamlit
 import matplotlib.pyplot as plt
 import io
 import base64
-
+from config import MIN_ROWS_FOR_KDE, CATEGORICAL_TOP_N, HEATMAP_MIN_COLUMNS
 
 def plot_distribution(df: pd.DataFrame, column: str) -> go.Figure:
     """Histogram for a numeric column."""
     try:
         fig = px.histogram(
             df, x=column,
-            marginal="kde",
+            marginal = "kde" if df[column].dropna().shape[0] >= MIN_ROWS_FOR_KDE else None,
             title=f"Distribution of {column}",
             template="plotly_white",
             color_discrete_sequence=["#636EFA"]
@@ -52,15 +52,15 @@ def plot_correlation_heatmap(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def plot_categorical_bar(df: pd.DataFrame, column: str, top_n: int = 10) -> go.Figure:
+def plot_categorical_bar(df: pd.DataFrame, column: str) -> go.Figure:
     """
     Bar chart of top N value counts for a categorical column.
     """
-    counts = df[column].value_counts().head(top_n).reset_index()
+    counts = df[column].value_counts().head(CATEGORICAL_TOP_N).reset_index()
     counts.columns = [column, "count"]
     fig = px.bar(
         counts, x=column, y="count",
-        title=f"Top {top_n} values in '{column}'",
+        title=f"Top {CATEGORICAL_TOP_N} values in '{column}'",
         template="plotly_white",
         color_discrete_sequence=["#EF553B"]
     )

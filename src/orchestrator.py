@@ -2,11 +2,21 @@ import os
 import json
 from dotenv import load_dotenv
 from groq import Groq
+from config import (
+    LLM_MODEL,
+    LLM_TEMPERATURE_PLAN,
+    LLM_TEMPERATURE_CHAT,
+    LLM_MAX_TOKENS_PLAN,
+    LLM_MAX_TOKENS_CHAT,
+    OUTLIER_DROP_MAX_PCT,
+    OUTLIER_DROP_MIN_ROWS,
+    NULL_DROP_COLUMN_THRESHOLD,
+)
 
 load_dotenv()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL = "llama-3.3-70b-versatile"
+MODEL = LLM_MODEL
 
 
 # ── Prompt Templates ────────────────────────────────────────────────
@@ -50,12 +60,14 @@ Do not write code. Speak plainly.
 
 
 # ── Core Orchestrator Functions ──────────────────────────────────────
-def _pre_analyze_profile(profile: dict) -> str:
+def _pre_analyze_profile(profile: dict, rag_context : dict = None) -> str:
     """
-    Pre-analyzes the profile in Python and produces explicit instructions
-    for the LLM. This removes ambiguity and prevents empty responses.
+    Pre-analyzes the profile in Python and produces explicit instructions for the LLM. 
+    Injects RAG context per column if available.
     """
-    lines = ["Based on the dataset profile, here are the findings per column:"]
+
+    rag_context = rag_context or {}
+    lines = ["Based on dataset profile, here are the findings per column: "]
     lines.append(f"- Dataset has {profile['duplicate_rows']} duplicate rows.")
 
     for col, info in profile["columns"].items():
@@ -64,17 +76,19 @@ def _pre_analyze_profile(profile: dict) -> str:
         outlier_count = info.get("outlier_count", 0)
         skew_label = info.get("skew_label", "symmetric")
 
-        col_lines = [f"\nColumn '{col}' (type: {type_cat}):"]
+        col_lines = [f" \n Column '{col}'  (type: {type_cat}):"]
 
-        # Dtype issues
+        if col in rag_context and rag_context[col] :
+            col_lines.append(f"  - Domain context: {rag_context[col]}")
+
         if type_cat == "should_be_numeric":
-            col_lines.append(f"  - Stored as string but contains numbers. Needs dtype fix.")
+            col_lines.append("  - Stored as string but contains numbers. Needs dtype fix.")
         elif type_cat == "should_be_datetime":
-            col_lines.append(f"  - Stored as string but contains dates. Needs dtype fix.")
+            col_lines.append("  - Stored as string but contains dates. Needs dtype fix.")
 
         # Null issues
         if null_pct > 0:
-            if null_pct > 60:
+            if null_pct > NULL_DROP_COLUMN_THRESHOLD * 100:
                 col_lines.append(f"  - {null_pct}% missing — should be dropped.")
             elif type_cat in ("numeric", "should_be_numeric"):
                 strategy = "fill_median" if skew_label in ("moderate_skew", "high_skew") else "fill_mean"
@@ -84,15 +98,11 @@ def _pre_analyze_profile(profile: dict) -> str:
             else:
                 col_lines.append(f"  - {null_pct}% missing — use fill_mode.")
 
-        # Outlier issues
-        # Outlier issues
         if outlier_count > 0:
             total_rows = profile["shape"]["rows"]
             outlier_pct = outlier_count / total_rows
-            # Only drop if outliers are very few (<2% of rows) AND dataset is large enough
-            # Otherwise always cap — dropping rows is too destructive
-            strategy = "drop" if (outlier_pct < 0.02 and total_rows > 100) else "cap"
-            col_lines.append(f"  - {outlier_count} outliers ({round(outlier_pct*100,1)}% of rows) detected — use {strategy}.")
+            strategy = "drop" if (outlier_pct < OUTLIER_DROP_MAX_PCT and total_rows > OUTLIER_DROP_MIN_ROWS) else "cap"
+            col_lines.append(f"  - {outlier_count} outliers ({round(outlier_pct * 100, 1)}% of rows) detected — use {strategy}.")
 
         if len(col_lines) > 1:
             lines.extend(col_lines)
@@ -100,15 +110,14 @@ def _pre_analyze_profile(profile: dict) -> str:
     lines.append("\nNow produce the cleaning plan JSON exactly as specified.")
     return "\n".join(lines)
 
-
-def build_cleaning_plan(profile: dict) -> dict:
+def build_cleaning_plan(profile: dict, rag_context: dict = None) -> dict:
     """
     Sends the dataset profile to the LLM.
+    Injects RAG context into the pre-analysis if provided.
     Returns a structured cleaning plan as a Python dict.
     """
-    pre_analysis = _pre_analyze_profile(profile)
-
-    print(pre_analysis)
+    rag_context = rag_context or {}
+    pre_analysis = _pre_analyze_profile(profile, rag_context=rag_context)
 
     response = client.chat.completions.create(
         model=MODEL,
@@ -116,15 +125,12 @@ def build_cleaning_plan(profile: dict) -> dict:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": pre_analysis}
         ],
-        temperature=0.1,
-        max_tokens=2048
+        temperature=LLM_TEMPERATURE_PLAN,
+        max_tokens=LLM_MAX_TOKENS_PLAN
     )
 
     raw = response.choices[0].message.content.strip()
 
-    print(raw)
-
-    # Strip markdown code fences if the LLM adds them anyway
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -173,8 +179,8 @@ def answer_followup(
     reponse = client.chat.completions.create(
         model = MODEL,
         messages= messages,
-        temperature= 0.3,
-        max_tokens= 1024
+        temperature= LLM_TEMPERATURE_CHAT,
+        max_tokens= LLM_MAX_TOKENS_CHAT
     )
 
     return reponse.choices[0].message.content.strip()
